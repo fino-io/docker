@@ -1,0 +1,62 @@
+# Go binaries, tests and coverage
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage
+coverage.html
+coverage.txt
+go.work
+go.work.sum
+
+# Frontend dependencies and build output
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+npm-debug.log*
+
+# Local environment and deployment output
+*.log
+.env
+.env.*
+!.env.example
+!.env.example.tmpl
+
+# Backend runtime logs and SQLite data
+/backend/logs/
+/backend/*.db
+/backend/*.db-shm
+/backend/*.db-wal
+/backend/*.db-journal
+
+# IntelliJ IDEA / GoLand
+.idea/*
+!.idea/codeStyles/
+!.idea/runConfigurations/
+*.iml
+*.iws
+*.ipr
+
+# Visual Studio Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/*.code-snippets
+.history/
+
+# Fino generated artifacts and local caches
+/.fino/ir/
+/.fino/cache/
+/.fino/frontend/
+/.fino/backend/
+/.fino/release/
+.cache/
+
+# Local optional skills
+/skills/.optional/
