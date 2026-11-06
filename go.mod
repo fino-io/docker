@@ -6,7 +6,7 @@ require (
 	github.com/containerd/errdefs v1.0.0
 	github.com/moby/go-archive v0.3.0
 	github.com/moby/moby/api v1.56.1
-	github.com/moby/moby/client v0.6.2
+	github.com/moby/moby/client v0.6.3-0.20261016082512-f8773a7cd889
 )
 
 require (

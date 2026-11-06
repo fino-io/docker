@@ -3,6 +3,7 @@ package docker
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"strconv"
@@ -114,9 +115,53 @@ func readOutput(stream io.Reader, tty bool) (Output, error) {
 	if tty {
 		_, err = io.Copy(&capture, stream)
 	} else {
-		_, err = stdcopy.StdCopy(&capture, &capture, stream)
+		err = copyDockerFrames(&capture, stream)
 	}
 	return Output{Bytes: capture.buf.Bytes(), Truncated: capture.truncated}, err
+}
+
+// Docker multiplexes output in frames with an 8-byte header. EOF is valid
+// only between frames, and incomplete frames must not alter the capture.
+func copyDockerFrames(dst *outputCapture, src io.Reader) error {
+	var header [8]byte
+	payload := io.LimitedReader{R: src}
+	buffer := make([]byte, 32*1024)
+	for {
+		if _, err := io.ReadFull(src, header[:]); err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		}
+		payload.N = int64(binary.BigEndian.Uint32(header[4:]))
+		switch stream := stdcopy.StdType(header[0]); stream {
+		case stdcopy.Stdin, stdcopy.Stdout, stdcopy.Stderr:
+			length, truncated := dst.buf.Len(), dst.truncated
+			if err := copyFrame(dst, &payload, buffer); err != nil {
+				dst.buf.Truncate(length)
+				dst.truncated = truncated
+				return err
+			}
+		case stdcopy.Systemerr:
+			var message outputCapture
+			if err := copyFrame(&message, &payload, buffer); err != nil {
+				return err
+			}
+			return fmt.Errorf("error from daemon in stream: %s", message.buf.Bytes())
+		default:
+			return fmt.Errorf("unrecognized Docker stream: %d", stream)
+		}
+	}
+}
+
+func copyFrame(dst io.Writer, src *io.LimitedReader, buffer []byte) error {
+	if _, err := io.CopyBuffer(dst, src, buffer); err != nil {
+		return err
+	}
+	if src.N != 0 {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
 }
 
 type outputCapture struct {

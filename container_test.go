@@ -163,7 +163,7 @@ func TestRunCleansUpAfterCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	removed := false
+	logsRead, removed := false, false
 	d := newTestDocker(t, "daemon.example:2375", func(r *http.Request) (*http.Response, error) {
 		switch r.Method + " " + r.URL.Path {
 		case "POST /v1.47/containers/create":
@@ -173,12 +173,24 @@ func TestRunCleansUpAfterCancellation(t *testing.T) {
 		case "POST /v1.47/containers/example/wait":
 			cancel()
 			return nil, r.Context().Err()
+		case "GET /v1.47/containers/example/logs":
+			if err := r.Context().Err(); err != nil {
+				return nil, err
+			}
+			if _, ok := r.Context().Deadline(); !ok || r.URL.Query().Get("tail") != "100" {
+				return nil, errors.New("diagnostic logs need a deadline and a tail limit")
+			}
+			logsRead = true
+			return response(http.StatusOK, "\x01\x00\x00\x00\x00\x00\x00\x04last")
 		case "DELETE /v1.47/containers/example":
 			if err := r.Context().Err(); err != nil {
 				return nil, err
 			}
 			if r.URL.Query().Get("force") != "1" {
 				return nil, errors.New("cleanup must be able to remove a running container")
+			}
+			if !logsRead {
+				return nil, errors.New("container removed before collecting diagnostic logs")
 			}
 			removed = true
 			return response(http.StatusNoContent, "")
@@ -190,5 +202,8 @@ func TestRunCleansUpAfterCancellation(t *testing.T) {
 	result, err := d.Run(ctx, client.ContainerCreateOptions{Image: "alpine:3"})
 	if !errors.Is(err, context.Canceled) || result.ID != "example" || result.ExitCode != -1 || !removed {
 		t.Fatalf("Run() = %+v, %v, removed %v", result, err, removed)
+	}
+	if string(result.Output.Bytes) != "last" {
+		t.Fatalf("diagnostic output = %q, want last", result.Output.Bytes)
 	}
 }

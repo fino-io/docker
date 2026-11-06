@@ -19,8 +19,8 @@ type RunResult struct {
 }
 
 // Run starts a container, waits for it to exit, and collects its logs.
-// Cleanup is attempted even if waiting or reading the logs fails. Use a context
-// deadline to limit the run. A nonzero exit code is part of the result.
+// When the wait is canceled, Run attempts to collect recent logs before cleanup.
+// Use a context deadline to limit the run. A nonzero exit code is part of the result.
 func (d *Docker) Run(ctx context.Context, opts client.ContainerCreateOptions) (result RunResult, err error) {
 	result.ExitCode = -1
 	if opts.HostConfig != nil && opts.HostConfig.AutoRemove {
@@ -38,18 +38,26 @@ func (d *Docker) Run(ctx context.Context, opts client.ContainerCreateOptions) (r
 		}
 	}()
 
+	tty := opts.Config != nil && opts.Config.Tty
 	wait := d.cli.ContainerWait(ctx, result.ID, client.ContainerWaitOptions{})
 	select {
-	case err := <-wait.Error:
-		return result, fmt.Errorf("wait for container %s: %w", result.ID, err)
+	case err = <-wait.Error:
 	case status := <-wait.Result:
 		if status.Error != nil {
-			return result, fmt.Errorf("wait for container %s: %s", result.ID, status.Error.Message)
+			err = errors.New(status.Error.Message)
+		} else {
+			result.ExitCode = status.StatusCode
 		}
-		result.ExitCode = status.StatusCode
+	}
+	if err != nil {
+		if ctx.Err() != nil || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			logCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+			result.Output, _ = d.logs(logCtx, result.ID, "100", tty)
+			cancel()
+		}
+		return result, fmt.Errorf("wait for container %s: %w", result.ID, err)
 	}
 
-	tty := opts.Config != nil && opts.Config.Tty
 	result.Output, err = d.logs(ctx, result.ID, "", tty)
 	return result, err
 }
