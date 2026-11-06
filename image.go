@@ -1,51 +1,33 @@
 package docker
 
 import (
-	"crypto"
-	"math/big"
-	"os"
-	"regexp"
+	"context"
+	"errors"
+	"fmt"
 	"strings"
+	"time"
+
+	"github.com/moby/moby/api/types/image"
+	"github.com/moby/moby/client"
 )
 
-var loadImageRegexp = regexp.MustCompile(`(?m:^##load-image:.*$)`)
+// PruneImages removes unused images with the given label that are older than
+// olderThan. The label may be a key or key=value. Containers are left intact.
+func (d *Docker) PruneImages(ctx context.Context, label string, olderThan time.Duration) (image.PruneReport, error) {
+	label = strings.TrimSpace(label)
+	key, _, _ := strings.Cut(label, "=")
+	if strings.TrimSpace(key) == "" || olderThan <= 0 {
+		return image.PruneReport{}, errors.New("a label and a positive age are required")
+	}
 
-// ExtractLoadImage
-//
-// ##load-image:alpine
-func ExtractLoadImage(buildFile string) string {
-	content, err := os.ReadFile(buildFile)
+	filters := make(client.Filters).
+		Add("dangling", "false").
+		Add("label", label).
+		Add("until", olderThan.String())
+
+	result, err := d.cli.ImagePrune(ctx, client.ImagePruneOptions{Filters: filters})
 	if err != nil {
-		return ""
+		return image.PruneReport{}, fmt.Errorf("prune images with label %q: %w", label, err)
 	}
-
-	image := loadImageRegexp.Find(content)
-	if len(image) > 0 {
-		return strings.TrimSpace(strings.TrimPrefix(string(image), "##load-image:"))
-	}
-	return ""
-}
-
-var b26Alphabet = []byte("abcdefghijkmnopqrstuvwxyz_")
-
-func base26Encode(input []byte) []byte {
-	var result []byte
-	x := big.NewInt(0).SetBytes(input)
-	base := big.NewInt(int64(len(b26Alphabet)))
-	zero := big.NewInt(0)
-	mod := &big.Int{}
-	for x.Cmp(zero) != 0 {
-		x.DivMod(x, base, mod) // 对x取余数
-		result = append(result, b26Alphabet[mod.Int64()])
-	}
-	return result
-}
-
-func GetImageName(prefix, id string) string {
-	if len(id) > 0 {
-		bytes := crypto.MD5.New().Sum([]byte(id))
-		return prefix + "." + string(base26Encode(bytes[0:10]))
-	}
-
-	return ""
+	return result.Report, nil
 }
