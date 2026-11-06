@@ -24,7 +24,7 @@ type RunResult struct {
 func (d *Docker) Run(ctx context.Context, opts client.ContainerCreateOptions) (result RunResult, err error) {
 	result.ExitCode = -1
 	if opts.HostConfig != nil && opts.HostConfig.AutoRemove {
-		return result, errors.New("Run manages cleanup; HostConfig.AutoRemove must be false")
+		return result, errors.New("run manages cleanup; HostConfig.AutoRemove must be false")
 	}
 
 	result.ID, err = d.Start(ctx, opts)
