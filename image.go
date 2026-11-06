@@ -12,7 +12,8 @@ import (
 )
 
 // PruneImages removes unused images with the given label that are older than
-// olderThan. The label may be a key or key=value. Containers are left intact.
+// olderThan. The label may be a key or key=value. Depending on the daemon's
+// image store, pruning can remove some tags from an image still used by a container.
 func (d *Docker) PruneImages(ctx context.Context, label string, olderThan time.Duration) (image.PruneReport, error) {
 	label = strings.TrimSpace(label)
 	key, _, _ := strings.Cut(label, "=")

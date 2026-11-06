@@ -10,12 +10,12 @@ import (
 	"github.com/moby/moby/client"
 )
 
-// RunResult contains the container ID, exit status, and combined stdout and stderr.
+// RunResult contains the container ID, exit status, and output.
 // ExitCode is -1 if the exit status could not be obtained.
 type RunResult struct {
 	ID       string
 	ExitCode int64
-	Output   []byte
+	Output   Output
 }
 
 // Run starts a container, waits for it to exit, and collects its logs.

@@ -72,12 +72,14 @@ func TestDockerClientsKeepTheirOwnDaemon(t *testing.T) {
 
 func TestRunLifecycle(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		tty     bool
-		wantOut string
+		name      string
+		tty       bool
+		wantOut   string
+		truncated bool
 	}{
-		{"multiplexed", false, "stdout\nstderr\n"},
-		{"tty", true, "\x1b[31moutput\x1b[0m\r\n"},
+		{"multiplexed", false, "stdout\nstderr\n", false},
+		{"tty", true, "\x1b[31moutput\x1b[0m\r\n", false},
+		{"tty-truncated", true, strings.Repeat("x", outputLimit), true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			const id = "1234567890123456789012345678901234567890123456789012345678901234"
@@ -88,6 +90,9 @@ func TestRunLifecycle(t *testing.T) {
 				"\x02\x00\x00\x00\x00\x00\x00\x07stderr\n"
 			if tc.tty {
 				logStream = tc.wantOut
+			}
+			if tc.truncated {
+				logStream += "extra output"
 			}
 
 			logsRead, removed := false, false
@@ -123,10 +128,34 @@ func TestRunLifecycle(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if result.ID != id || result.ExitCode != 7 || string(result.Output) != tc.wantOut || !removed {
-				t.Fatalf("Run() = %+v, output %q, removed %v", result, result.Output, removed)
+			if result.ID != id || result.ExitCode != 7 || !removed {
+				t.Fatalf("Run() id = %q, exit code = %d, removed = %v", result.ID, result.ExitCode, removed)
+			}
+			if string(result.Output.Bytes) != tc.wantOut || result.Output.Truncated != tc.truncated {
+				t.Fatalf("output = %q (%d bytes), truncated = %v", result.Output.Bytes[:min(32, len(result.Output.Bytes))], len(result.Output.Bytes), result.Output.Truncated)
 			}
 		})
+	}
+}
+
+func TestStartPreservesHostConfig(t *testing.T) {
+	d := newTestDocker(t, "daemon.example:2375", func(r *http.Request) (*http.Response, error) {
+		switch r.Method + " " + r.URL.Path {
+		case "POST /v1.47/containers/create":
+			return response(http.StatusCreated, `{"Id":"example"}`)
+		case "POST /v1.47/containers/example/start":
+			return response(http.StatusNoContent, "")
+		default:
+			return nil, unexpectedRequest(r)
+		}
+	})
+
+	host := &container.HostConfig{CapAdd: []string{"net_admin"}}
+	if _, err := d.Start(t.Context(), client.ContainerCreateOptions{Image: "alpine:3", HostConfig: host}); err != nil {
+		t.Fatal(err)
+	}
+	if len(host.CapAdd) != 1 || host.CapAdd[0] != "net_admin" {
+		t.Fatalf("Start changed the caller's CapAdd to %v", host.CapAdd)
 	}
 }
 
